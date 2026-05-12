@@ -1,62 +1,42 @@
 # BidMart Auth Service
 
-`bidmart-auth-service` adalah service khusus untuk authentication dan authorization pada arsitektur microservice BidMart. Repository ini disiapkan sebagai tahap awal strangler pattern dari monolith (`Bidmart` branch `feat/auction-query-rollout`) agar pemisahan auth dapat dilakukan bertahap tanpa rewrite total.
+`bidmart-auth-service` adalah source of truth untuk akun user, autentikasi, dan JWT pada ekosistem BidMart.
 
-## Fungsi Service
-
-Service ini menjadi owner untuk:
-
-- registrasi dan login user,
-- pengelolaan token (access + refresh),
-- logout / revocation session,
-- data user profile untuk kebutuhan identitas,
-- role/permission untuk authorization,
-- endpoint internal validasi token dan query permission.
-
-## Data Ownership
-
-Auth service **memiliki** data berikut:
-
-- user account,
-- credential (password hash, bukan plain text),
-- role,
-- permission,
-- token/session metadata.
-
-Service lain **dilarang** mengakses database auth secara langsung. Akses harus melalui API contract auth service.
-
-## API Contract (Minimal)
-
-Endpoint berikut sudah disiapkan sebagai contract awal (scaffold controller + DTO):
+## Endpoint Publik
 
 - `POST /auth/register`
 - `POST /auth/login`
-- `POST /auth/refresh`
-- `POST /auth/logout`
+- `GET /auth/me`
 - `GET /users/{userId}/profile`
+
+## Endpoint Internal
+
 - `POST /internal/auth/validate-token`
 - `GET /internal/users/{userId}/permissions`
 
-> Status implementasi saat ini: semua endpoint masih **TODO response** (belum persistence/JWT production-ready).
+## Integrasi Wallet
 
-## Struktur Penting
+Saat register BUYER, auth service melakukan bootstrap saldo awal ke wallet service.
+`/auth/me` dan payload `user` di login mengambil saldo dari wallet service agar wallet tetap menjadi source of truth saldo.
 
-- `src/main/java/.../api/AuthController.java` → endpoint auth publik.
-- `src/main/java/.../api/UserController.java` → endpoint profile user.
-- `src/main/java/.../internal/InternalAuthController.java` → endpoint internal service-to-service.
-- `src/main/java/.../api/dto/*` → request/response contract awal.
+## Environment
 
-## Dependency ke Database
+Lihat `.env.example`.
 
-Contoh konfigurasi disediakan di `application-example.yml` (tanpa secret) menggunakan PostgreSQL untuk schema auth.
+Variabel utama:
 
-## Run Lokal
+- `PORT` (default `8081`)
+- `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`
+- `JWT_SECRET`, `JWT_EXP_SECONDS`
+- `CORS_ALLOWED_ORIGINS`
+- `WALLET_SERVICE_BASE_URL`
+
+## Local Run
 
 ```bash
+cp .env.example .env
 ./gradlew bootRun
 ```
-
-Default port: `8083`.
 
 ## Test
 
@@ -64,31 +44,9 @@ Default port: `8083`.
 ./gradlew test
 ```
 
-## Service yang Bergantung ke Auth
+## Docker
 
-- `bidmart-gateway` untuk login/register dan token forwarding selama masa transisi.
-- Seluruh backend service (`listing-query`, `auction-query`, `bidding-command`, `wallet`, `notification`) untuk validasi token internal dan permission check.
-
-## Coupling yang Masih Tersisa (Harus Diputus Bertahap)
-
-Berikut coupling yang diperkirakan masih ada pada monolith sumber (asumsi berdasarkan konteks migrasi; perlu verifikasi kode lintas-repo):
-
-1. Flow register kemungkinan masih memicu provisioning domain lain (mis. wallet) secara langsung.
-2. Authorization check kemungkinan masih tersebar di controller/service domain non-auth.
-3. Session/token revocation kemungkinan belum dipusatkan di auth service.
-
-## TODO Implementasi Lanjutan
-
-1. Tambah persistence layer (`User`, `Role`, `Permission`, `SessionToken`) + migration schema.
-2. Implementasi hashing password dan policy keamanan (rate limit/login attempt lock).
-3. Implementasi JWT signing + key rotation + refresh token rotation.
-4. Implementasi endpoint internal validate-token dan permissions secara real.
-5. Pindahkan logic auth/user dari monolith ke service ini dan update gateway routing.
-
-## Catatan Keamanan
-
-Jangan commit file berikut:
-
-- `.env`, credential, token, private key,
-- `build/`, `target/`, `node_modules/`,
-- file lokal IDE.
+```bash
+docker build -t bidmart-auth-service .
+docker run --env-file .env -p 8081:8081 bidmart-auth-service
+```
